@@ -163,7 +163,7 @@ if mode == "Image Detection":
         st.image(
             annotated_rgb,
             caption="Annotated Road Image",
-            use_container_width=True,
+            width="stretch",
         )
 
         col1, col2 = st.columns(2)
@@ -327,7 +327,24 @@ elif mode == "Video Traffic Analytics":
         congestion = video_summary.get(
             "congestion_estimation", {}
         )
+        st.subheader("Road-Relevant Class Counts")
 
+        road_class_counts = video_summary.get(
+            "road_relevant_class_counts", {}
+        )
+
+        if road_class_counts:
+            st.bar_chart(road_class_counts)
+            st.caption(
+                "Counts represent detections across processed frames, "
+                "not unique vehicles. People are included in this "
+                "road-relevant summary."
+            )
+        else:
+            st.info(
+                "Road-relevant class counts are unavailable in this "
+                "summary. Re-run video analysis to generate them."
+            )
         st.subheader("Traffic Congestion Estimation")
 
         if congestion:
