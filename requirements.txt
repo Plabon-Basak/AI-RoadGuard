@@ -1,4 +1,4 @@
-opencv-python>=5,<6
+opencv-python-headless>=4.10,<5
 ultralytics>=8.4
 streamlit>=1.40
 boto3>=1.35
