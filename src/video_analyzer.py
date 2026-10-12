@@ -11,6 +11,22 @@ OUTPUT_DIR = ROOT / "outputs"
 
 VEHICLE_CLASSES = {"car", "bus", "truck", "motorcycle"}
 
+ROAD_RELEVANT_CLASSES = {
+    "car",
+    "bus",
+    "truck",
+    "motorcycle",
+    "bicycle",
+    "person",
+}
+
+def filter_road_relevant_class_counts(class_counts):
+    return {
+        label: count
+        for label, count in sorted(class_counts.items())
+        if label in ROAD_RELEVANT_CLASSES
+    }
+
 LOW_CONGESTION_MAX = 5
 MODERATE_CONGESTION_MAX = 12
 
@@ -456,7 +472,25 @@ def analyze_video(
         "crossings_by_direction": dict(direction_counts),
         "crossings_by_vehicle_class": dict(crossing_class_counts),
         "class_counts_across_frames": dict(
-            sorted(class_counts.items())
+        sorted(class_counts.items())
+        ),
+        "road_relevant_class_counts": filter_road_relevant_class_counts(
+            class_counts
+        ),
+
+        "road_relevant_class_counts": dict(
+            sorted(
+                (label, count)
+                for label, count in class_counts.items()
+                if label in ROAD_RELEVANT_CLASSES
+            )
+        ),
+        "road_relevant_class_counts": dict(
+            sorted(
+                (label, count)
+                for label, count in class_counts.items()
+                if label in ROAD_RELEVANT_CLASSES
+            )
         ),
         "optical_flow_analysis": {
             "enabled": enable_optical_flow,
