@@ -1,4 +1,3 @@
-
 import json
 from collections import Counter
 from pathlib import Path
@@ -12,9 +11,12 @@ OUTPUT_DIR = ROOT / "outputs"
 
 VEHICLE_CLASSES = {"car", "bus", "truck", "motorcycle"}
 
-# Heuristic thresholds: adjust for your camera view.
 LOW_CONGESTION_MAX = 5
 MODERATE_CONGESTION_MAX = 12
+
+FLOW_ANALYSIS_WIDTH = 480
+FLOW_VECTOR_SPACING = 32
+FLOW_VECTOR_SCALE = 2.0
 
 
 def estimate_congestion(vehicle_count):
@@ -25,11 +27,94 @@ def estimate_congestion(vehicle_count):
     return "High"
 
 
+def calculate_optical_flow(previous_gray, current_gray):
+    flow = cv2.calcOpticalFlowFarneback(
+        previous_gray,
+        current_gray,
+        None,
+        0.5,
+        3,
+        15,
+        3,
+        5,
+        1.2,
+        0,
+    )
+
+    magnitude, _ = cv2.cartToPolar(
+        flow[:, :, 0],
+        flow[:, :, 1],
+    )
+
+    motion_score = float(cv2.mean(magnitude)[0])
+
+    return flow, motion_score
+
+
+def draw_motion_vectors(
+    frame,
+    flow,
+    flow_width=None,
+    flow_height=None,
+):
+    frame_height, frame_width = frame.shape[:2]
+
+    actual_flow_height, actual_flow_width = flow.shape[:2]
+
+    if flow_width is None:
+        flow_width = actual_flow_width
+
+    if flow_height is None:
+        flow_height = actual_flow_height
+
+    scale_x = frame_width / flow_width
+    scale_y = frame_height / flow_height
+
+    step = FLOW_VECTOR_SPACING
+
+    for y in range(16, flow_height, step):
+        for x in range(16, flow_width, step):
+            fx, fy = flow[y, x]
+
+            magnitude = (fx * fx + fy * fy) ** 0.5
+
+            if magnitude < 0.25:
+                continue
+
+            start_x = int(x * scale_x)
+            start_y = int(y * scale_y)
+
+            end_x = int(
+                (x + FLOW_VECTOR_SCALE * 4 * fx) * scale_x
+            )
+            end_y = int(
+                (y + FLOW_VECTOR_SCALE * 4 * fy) * scale_y
+            )
+
+            start_x = max(0, min(frame_width - 1, start_x))
+            start_y = max(0, min(frame_height - 1, start_y))
+            end_x = max(0, min(frame_width - 1, end_x))
+            end_y = max(0, min(frame_height - 1, end_y))
+
+            cv2.arrowedLine(
+                frame,
+                (start_x, start_y),
+                (end_x, end_y),
+                (255, 0, 255),
+                3,
+                cv2.LINE_AA,
+                tipLength=0.35,
+            )
+
+    return frame
+
+
 def analyze_video(
     video_path,
     confidence=0.25,
     image_size=640,
     line_position=65,
+    enable_optical_flow=True,
 ):
     video_path = Path(video_path)
 
@@ -52,6 +137,10 @@ def analyze_video(
     frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
     width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    if width <= 0 or height <= 0:
+        capture.release()
+        raise ValueError("Video has invalid frame dimensions.")
 
     line_position = max(10, min(90, int(line_position)))
     line_y = int(height * line_position / 100)
@@ -88,12 +177,49 @@ def analyze_video(
     peak_frame_vehicle_count = 0
     congestion_level_counts = Counter()
 
+    previous_flow_gray = None
+    motion_scores = []
+
+    flow_width = min(width, FLOW_ANALYSIS_WIDTH)
+    flow_height = max(
+        1,
+        int(height * flow_width / width),
+    )
+
     try:
         while True:
             success, frame = capture.read()
 
             if not success:
                 break
+
+            flow_gray = cv2.cvtColor(
+                frame,
+                cv2.COLOR_BGR2GRAY,
+            )
+
+            if flow_width != width or flow_height != height:
+                flow_gray = cv2.resize(
+                    flow_gray,
+                    (flow_width, flow_height),
+                    interpolation=cv2.INTER_AREA,
+                )
+
+            flow = None
+            motion_score = None
+
+            if (
+                enable_optical_flow
+                and previous_flow_gray is not None
+            ):
+                flow, motion_score = calculate_optical_flow(
+                    previous_flow_gray,
+                    flow_gray,
+                )
+
+                motion_scores.append(motion_score)
+
+            previous_flow_gray = flow_gray
 
             result = model.track(
                 source=frame,
@@ -105,6 +231,15 @@ def analyze_video(
             )[0]
 
             annotated_frame = result.plot()
+
+            if flow is not None:
+                draw_motion_vectors(
+                    annotated_frame,
+                    flow,
+                    flow_width,
+                    flow_height,
+                )
+
             frame_detections = []
             frame_crossings = 0
             frame_vehicle_count = 0
@@ -131,6 +266,7 @@ def analyze_video(
 
                     coordinates = box.xyxy[0].tolist()
                     x1, y1, x2, y2 = coordinates
+
                     center_x = int((x1 + x2) / 2)
                     center_y = int((y1 + y2) / 2)
 
@@ -142,10 +278,14 @@ def analyze_video(
 
                         if label in VEHICLE_CLASSES:
                             current_side = (
-                                "above" if center_y < line_y else "below"
+                                "above"
+                                if center_y < line_y
+                                else "below"
                             )
 
-                            previous_side = previous_sides.get(track_id)
+                            previous_side = previous_sides.get(
+                                track_id
+                            )
 
                             if (
                                 previous_side is not None
@@ -184,12 +324,17 @@ def analyze_video(
 
             processed_frames += 1
 
-            congestion_level = estimate_congestion(frame_vehicle_count)
+            congestion_level = estimate_congestion(
+                frame_vehicle_count
+            )
+
             total_frame_vehicle_count += frame_vehicle_count
+
             peak_frame_vehicle_count = max(
                 peak_frame_vehicle_count,
                 frame_vehicle_count,
             )
+
             congestion_level_counts[congestion_level] += 1
 
             cv2.line(
@@ -212,11 +357,34 @@ def analyze_video(
 
             cv2.putText(
                 annotated_frame,
-                f"Vehicles: {frame_vehicle_count} | Congestion: {congestion_level}",
+                (
+                    f"Vehicles: {frame_vehicle_count} | "
+                    f"Congestion: {congestion_level}"
+                ),
                 (20, 75),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.8,
                 (0, 255, 0),
+                2,
+            )
+
+            if not enable_optical_flow:
+                motion_label = "Optical Flow: Disabled"
+            elif motion_score is None:
+                motion_label = "Optical Flow: Warming up"
+            else:
+                motion_label = (
+                    f"Optical Flow Motion: "
+                    f"{motion_score:.2f} px/frame"
+                )
+
+            cv2.putText(
+                annotated_frame,
+                motion_label,
+                (20, 110),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                (255, 0, 255),
                 2,
             )
 
@@ -225,12 +393,18 @@ def analyze_video(
             frame_summaries.append({
                 "frame": processed_frames,
                 "timestamp_seconds": round(
-                    (processed_frames - 1) / fps, 3
+                    (processed_frames - 1) / fps,
+                    3,
                 ),
                 "detection_count": len(frame_detections),
                 "vehicle_count": frame_vehicle_count,
                 "congestion_level": congestion_level,
                 "line_crossings_this_frame": frame_crossings,
+                "optical_flow_motion_magnitude": (
+                    round(motion_score, 4)
+                    if motion_score is not None
+                    else None
+                ),
                 "detections": frame_detections,
             })
 
@@ -254,6 +428,14 @@ def analyze_video(
         average_vehicles_per_frame
     )
 
+    average_motion = (
+        sum(motion_scores) / len(motion_scores)
+        if motion_scores
+        else 0.0
+    )
+
+    peak_motion = max(motion_scores, default=0.0)
+
     summary = {
         "video": video_path.name,
         "model": MODEL_PATH.name,
@@ -273,14 +455,40 @@ def analyze_video(
         "total_vehicle_line_crossings": len(crossed_ids),
         "crossings_by_direction": dict(direction_counts),
         "crossings_by_vehicle_class": dict(crossing_class_counts),
-        "class_counts_across_frames": dict(sorted(class_counts.items())),
+        "class_counts_across_frames": dict(
+            sorted(class_counts.items())
+        ),
+        "optical_flow_analysis": {
+            "enabled": enable_optical_flow,
+            "method": "Farneback dense optical flow",
+            "analysis_width": flow_width,
+            "analysis_height": flow_height,
+            "frames_with_motion_measurement": len(motion_scores),
+            "average_motion_magnitude": round(
+                average_motion,
+                4,
+            ),
+            "peak_motion_magnitude": round(
+                peak_motion,
+                4,
+            ),
+            "unit": "pixels per frame at analysis resolution",
+            "interpretation": (
+                "Measures apparent frame-to-frame pixel motion. "
+                "It is not a direct measure of vehicle speed "
+                "or congestion."
+            ),
+        },
         "congestion_estimation": {
-            "method": "Heuristic based on detected vehicles per frame",
+            "method": (
+                "Heuristic based on detected vehicles per frame"
+            ),
             "vehicle_classes_included": sorted(VEHICLE_CLASSES),
             "low_threshold_max_vehicles": LOW_CONGESTION_MAX,
             "moderate_threshold_max_vehicles": MODERATE_CONGESTION_MAX,
             "average_vehicles_per_frame": round(
-                average_vehicles_per_frame, 2
+                average_vehicles_per_frame,
+                2,
             ),
             "peak_vehicles_in_one_frame": peak_frame_vehicle_count,
             "estimated_overall_level": overall_congestion_level,
@@ -298,12 +506,35 @@ def analyze_video(
         "output_video": output_video.name,
         "frames": frame_summaries,
         "limitations": [
-            "A vehicle is counted only if it crosses the virtual line during the clip.",
-            "Each track ID is counted at most once, even if it crosses again.",
-            "Tracking ID changes can cause missed or duplicate real-world counts.",
-            "The line position may need adjustment for different camera views.",
-            "Congestion levels use vehicle detections per frame, not calibrated road occupancy or traffic speed.",
-            "Camera angle, occlusion, detection errors, and scene size can affect congestion estimates.",
+            (
+                "A vehicle is counted only if it crosses the "
+                "virtual line during the clip."
+            ),
+            (
+                "Each track ID is counted at most once, "
+                "even if it crosses again."
+            ),
+            (
+                "Tracking ID changes can cause missed or "
+                "duplicate real-world counts."
+            ),
+            (
+                "The line position may need adjustment for "
+                "different camera views."
+            ),
+            (
+                "Congestion levels use vehicle detections per frame, "
+                "not calibrated road occupancy or traffic speed."
+            ),
+            (
+                "Optical flow measures apparent pixel motion and "
+                "can be affected by camera movement, shadows, "
+                "lighting, and moving backgrounds."
+            ),
+            (
+                "Camera angle, occlusion, detection errors, "
+                "and scene size can affect congestion estimates."
+            ),
             "This is not a calibrated traffic measurement system.",
         ],
     }
