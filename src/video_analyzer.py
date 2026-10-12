@@ -1,3 +1,4 @@
+
 import json
 from collections import Counter
 from pathlib import Path
@@ -20,12 +21,14 @@ ROAD_RELEVANT_CLASSES = {
     "person",
 }
 
+
 def filter_road_relevant_class_counts(class_counts):
     return {
         label: count
         for label, count in sorted(class_counts.items())
         if label in ROAD_RELEVANT_CLASSES
     }
+
 
 LOW_CONGESTION_MAX = 5
 MODERATE_CONGESTION_MAX = 12
@@ -74,7 +77,6 @@ def draw_motion_vectors(
     flow_height=None,
 ):
     frame_height, frame_width = frame.shape[:2]
-
     actual_flow_height, actual_flow_width = flow.shape[:2]
 
     if flow_width is None:
@@ -91,7 +93,6 @@ def draw_motion_vectors(
     for y in range(16, flow_height, step):
         for x in range(16, flow_width, step):
             fx, fy = flow[y, x]
-
             magnitude = (fx * fx + fy * fy) ** 0.5
 
             if magnitude < 0.25:
@@ -112,15 +113,137 @@ def draw_motion_vectors(
             end_x = max(0, min(frame_width - 1, end_x))
             end_y = max(0, min(frame_height - 1, end_y))
 
+            start = (start_x, start_y)
+            end = (end_x, end_y)
+
+            # Dark outline keeps arrows visible on bright backgrounds.
             cv2.arrowedLine(
                 frame,
-                (start_x, start_y),
-                (end_x, end_y),
+                start,
+                end,
+                (0, 0, 0),
+                7,
+                cv2.LINE_AA,
+                tipLength=0.4,
+            )
+
+            # Bright magenta indicates apparent motion direction.
+            cv2.arrowedLine(
+                frame,
+                start,
+                end,
                 (255, 0, 255),
                 3,
                 cv2.LINE_AA,
-                tipLength=0.35,
+                tipLength=0.4,
             )
+
+    return frame
+
+
+def draw_video_overlay(
+    frame,
+    line_y,
+    crossing_count,
+    vehicle_count,
+    congestion_level,
+    motion_label,
+):
+    height, width = frame.shape[:2]
+
+    # Scale overlay elements for different video resolutions.
+    scale = min(
+        2.5,
+        max(0.8, min(width, height) / 900.0),
+    )
+
+    thickness = max(2, int(2 * scale))
+    line_thickness = max(3, int(3 * scale))
+
+    # Draw a dark outline underneath the bright crossing line.
+    cv2.line(
+        frame,
+        (0, line_y),
+        (width - 1, line_y),
+        (0, 0, 0),
+        line_thickness + max(3, int(3 * scale)),
+        cv2.LINE_AA,
+    )
+
+    cv2.line(
+        frame,
+        (0, line_y),
+        (width - 1, line_y),
+        (0, 255, 255),
+        line_thickness,
+        cv2.LINE_AA,
+    )
+
+    # Place a semi-transparent dark panel behind the status text.
+    panel_width = min(width - 20, int(700 * scale))
+    panel_height = min(height - 20, int(135 * scale))
+
+    if panel_width > 0 and panel_height > 0:
+        overlay = frame.copy()
+
+        cv2.rectangle(
+            overlay,
+            (10, 10),
+            (10 + panel_width, 10 + panel_height),
+            (15, 15, 15),
+            -1,
+        )
+
+        cv2.addWeighted(
+            overlay,
+            0.82,
+            frame,
+            0.18,
+            0,
+            frame,
+        )
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    text_x = 20
+    first_y = int(40 * scale)
+    second_y = int(77 * scale)
+    third_y = int(114 * scale)
+
+    font_scale = 0.8 * scale
+
+    cv2.putText(
+        frame,
+        f"Virtual Line | Crossings: {crossing_count}",
+        (text_x, first_y),
+        font,
+        font_scale,
+        (0, 255, 255),
+        thickness,
+        cv2.LINE_AA,
+    )
+
+    cv2.putText(
+        frame,
+        f"Vehicles: {vehicle_count} | Congestion: {congestion_level}",
+        (text_x, second_y),
+        font,
+        font_scale * 0.9,
+        (0, 255, 0),
+        thickness,
+        cv2.LINE_AA,
+    )
+
+    cv2.putText(
+        frame,
+        motion_label,
+        (text_x, third_y),
+        font,
+        font_scale * 0.8,
+        (255, 0, 255),
+        thickness,
+        cv2.LINE_AA,
+    )
 
     return frame
 
@@ -353,37 +476,6 @@ def analyze_video(
 
             congestion_level_counts[congestion_level] += 1
 
-            cv2.line(
-                annotated_frame,
-                (0, line_y),
-                (width, line_y),
-                (0, 255, 255),
-                3,
-            )
-
-            cv2.putText(
-                annotated_frame,
-                f"Virtual Line | Crossings: {len(crossed_ids)}",
-                (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (0, 255, 255),
-                2,
-            )
-
-            cv2.putText(
-                annotated_frame,
-                (
-                    f"Vehicles: {frame_vehicle_count} | "
-                    f"Congestion: {congestion_level}"
-                ),
-                (20, 75),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (0, 255, 0),
-                2,
-            )
-
             if not enable_optical_flow:
                 motion_label = "Optical Flow: Disabled"
             elif motion_score is None:
@@ -394,14 +486,13 @@ def analyze_video(
                     f"{motion_score:.2f} px/frame"
                 )
 
-            cv2.putText(
+            draw_video_overlay(
                 annotated_frame,
+                line_y,
+                len(crossed_ids),
+                frame_vehicle_count,
+                congestion_level,
                 motion_label,
-                (20, 110),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.65,
-                (255, 0, 255),
-                2,
             )
 
             writer.write(annotated_frame)
@@ -472,25 +563,10 @@ def analyze_video(
         "crossings_by_direction": dict(direction_counts),
         "crossings_by_vehicle_class": dict(crossing_class_counts),
         "class_counts_across_frames": dict(
-        sorted(class_counts.items())
+            sorted(class_counts.items())
         ),
         "road_relevant_class_counts": filter_road_relevant_class_counts(
             class_counts
-        ),
-
-        "road_relevant_class_counts": dict(
-            sorted(
-                (label, count)
-                for label, count in class_counts.items()
-                if label in ROAD_RELEVANT_CLASSES
-            )
-        ),
-        "road_relevant_class_counts": dict(
-            sorted(
-                (label, count)
-                for label, count in class_counts.items()
-                if label in ROAD_RELEVANT_CLASSES
-            )
         ),
         "optical_flow_analysis": {
             "enabled": enable_optical_flow,
