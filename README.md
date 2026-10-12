@@ -182,6 +182,33 @@ Analysis results are saved under `outputs/`. Depending on the operation, these m
 The video analysis summary can include object-class counts, vehicle crossing counts, heuristic traffic estimates, optical-flow measurements, and documented limitations.
 
 Generated outputs and model weights are excluded from Git to avoid accidentally committing large files.
+## Screenshots
+
+### Image Detection
+
+The image detection interface allows users to upload an image and view object detection results with annotated bounding boxes.
+
+![Image Upload](screenshots/image_detection_screenshots/01_image_upload.png)
+
+![Image Detection Results](screenshots/image_detection_screenshots/02_image_detection_results.png)
+
+![Annotated Image](screenshots/image_detection_screenshots/03_annotated_image.png)
+
+### Video Traffic Analytics
+
+The video analytics interface processes road footage to demonstrate object detection, vehicle tracking, virtual line crossing, road-relevant class counts, and traffic congestion estimation.
+
+![Video Upload](screenshots/video_analytics_screenshots/01_video_upload.png)
+
+![Video Detection](screenshots/video_analytics_screenshots/02_video_detection.png)
+
+![Vehicle Tracking](screenshots/video_analytics_screenshots/03_vehicle_tracking.png)
+
+![Line Crossing](screenshots/video_analytics_screenshots/04_line_crossing.png)
+
+![Road-Relevant Class Counts](screenshots/video_analytics_screenshots/05_road_class_counts.png)
+
+![Traffic Analytics](screenshots/video_analytics_screenshots/06_traffic_analytics.png)
 
 ## Methodology
 
@@ -249,7 +276,7 @@ For meaningful performance evaluation, use representative road videos and ground
 - Improve traffic estimation using calibrated camera views and longer observation windows.
 - Investigate camera-motion compensation for optical-flow analysis.
 - Add configurable alert thresholds and reproducible benchmark results.
-- Include representative screenshots, sample inputs, and documented evaluation results.
+- Add representative sample inputs and documented evaluation results.
 - Explore cloud deployment when suitable infrastructure is available.
 
 ## License
