@@ -1,88 +1,120 @@
 # AI RoadGuard
 
-AI RoadGuard is a computer vision prototype for road-scene analysis built with OpenCV, YOLOv8, ByteTrack, and Streamlit. It analyzes road images and videos to detect objects, track vehicles, visualize apparent motion, estimate traffic levels, count virtual-line crossings, and generate preliminary review alerts.
+**AI-powered road-scene analysis using OpenCV, YOLOv8, and ByteTrack.**
 
-The project is designed to support human review of road scenes. It does not replace professional traffic assessment, calibrated traffic monitoring, or validated road-safety systems.
+AI RoadGuard is a computer vision prototype that analyzes road images and videos to detect road users, track vehicles, estimate traffic levels, visualize apparent motion, and generate preliminary road-scene review alerts.
+
+**Live Demo:** [Open AI RoadGuard](https://ai-roadguard-plabonbasak.streamlit.app/)
+
+**GitHub Repository:** [Plabon-Basak/AI-RoadGuard](https://github.com/Plabon-Basak/AI-RoadGuard)
+
+## Project Overview
+
+AI RoadGuard combines object detection, object tracking, optical flow, and rule-based analysis to demonstrate how computer vision can support preliminary road-scene monitoring.
+
+Users can upload an image or video through the Streamlit interface and inspect the resulting detections and analytics.
+
+The project is a prototype for educational and hackathon purposes. Its outputs are intended to support human review, not replace professional traffic monitoring or road-safety decisions.
 
 ## Features
 
-### 1. Road Object Detection
+### 1. Image Detection
+- Upload a road-scene image.
+- Detect supported objects using YOLOv8.
+- Display detected classes and confidence scores.
+- View the annotated image with detection bounding boxes.
 
-- Upload road images through the Streamlit interface.
-- Detect objects using YOLOv8.
-- Configure detection confidence and inference image size.
-- View annotated images and detection information.
+### 2. Video Analysis
+- Upload a road-scene video.
+- Detect road users across video frames.
+- Track detected objects using ByteTrack.
+- Generate an annotated output video.
+- Produce a JSON summary of the analysis.
 
-### 2. Video Traffic Analytics
+### 3. Vehicle Tracking
+- Assign tracking IDs to detected objects across frames.
+- Visualize tracking results in the annotated video.
+- Support virtual line-crossing analysis.
 
-- Upload a road video for analysis.
-- Detect and track objects across frames using YOLOv8 and ByteTrack.
-- Count tracked vehicle crossings over a configurable virtual line.
-- Estimate traffic levels using detected vehicle counts.
-- Generate an annotated video and a structured JSON summary.
+Tracking IDs are model-generated identifiers and may change when tracking is interrupted or an object is lost.
 
-### 3. Road-Relevant Class Counts
+### 4. Line-Crossing Analysis
+- Count tracked objects crossing a configured virtual line.
+- Use line-crossing results as an additional road-scene analysis signal.
 
-- Summarize detections for road-relevant classes: cars, buses, trucks, motorcycles, bicycles, and people.
-- Filter out unrelated classes from the road-relevant summary.
-- Present the summary in the dashboard when the analysis data is available.
+The counts depend on tracking quality, line placement, video quality, and the selected detection settings.
 
-**Important:** These counts represent detections across processed frames, not necessarily unique objects or vehicles. A single object can be counted multiple times across different frames.
+### 5. Traffic-Level Estimation
+AI RoadGuard provides a preliminary traffic-level estimate based on the number of detected vehicles.
 
-### 4. OpenCV Optical Flow Analysis
+The current heuristic uses these thresholds:
 
-- Calculate dense optical flow using OpenCV's Farnebäck algorithm.
-- Visualize apparent frame-to-frame movement using motion arrows.
-- Calculate average apparent motion magnitude for analyzed frame pairs.
-- Include optical-flow statistics in the video analysis summary.
-- Process reduced-resolution grayscale frames to reduce computational cost.
+| Detected vehicles | Estimated traffic level |
+|---|---|
+| 0–5 | Low |
+| 6–12 | Moderate |
+| More than 12 | High |
 
-**Important:** Optical flow measures apparent pixel movement, not actual vehicle speed. Camera movement, lighting changes, shadows, and moving backgrounds can affect the measurements.
+These thresholds are configurable prototype heuristics. They do not represent calibrated traffic density, congestion, or road capacity.
 
-### 5. Rule-Based Review Alerts
+### 6. Optical Flow Visualization
+- Use OpenCV's Farnebäck optical flow to estimate apparent pixel motion between video frames.
+- Visualize motion with magenta arrows.
+- Provide an additional visual cue for movement in the scene.
 
-- Flag high detected vehicle counts for manual congestion review.
-- Flag unexpected detections for inspection.
-- Identify highly overlapping detection boxes for review.
-- Generate preliminary alerts and supporting detection statistics.
+Optical flow measures apparent image motion. It does not directly calculate real-world vehicle speed.
 
-These alerts are rule-based indicators for human review, not confirmed road hazards or verified incidents.
+### 7. Road-User Class Counts
+Display detections for supported road-relevant classes, including:
+- Cars
+- Buses
+- Trucks
+- Motorcycles
+- Bicycles
+- People
 
-### 6. Visualization and Reporting
+Counts accumulated across video frames are detection counts, not necessarily unique-object counts.
 
-- Display annotated detection results.
-- Visualize road-relevant class counts and traffic analytics.
-- Generate processed videos and JSON analysis summaries.
-- Produce evaluation reports from available analysis results.
+### 8. Preliminary Review Alerts
+The prototype includes rule-based checks that can flag conditions such as:
+- High vehicle detection counts.
+- Unexpected detected classes.
+- Overlapping detection bounding boxes.
+
+These alerts are preliminary indicators for human review. They do not establish that an accident, hazard, or traffic violation has occurred.
 
 ## Technology Stack
 
-- Python
-- OpenCV
-- Ultralytics YOLOv8
-- PyTorch
-- ByteTrack
-- Streamlit
-- NumPy
-- pytest
-
-Boto3 is relevant only if the current implementation uses AWS functionality; it is not required merely to run the local Streamlit application.
+| Technology | Purpose |
+|---|---|
+| Python | Main programming language |
+| OpenCV | Image and video processing, optical flow |
+| Ultralytics YOLOv8 | Object detection |
+| ByteTrack | Multi-object tracking |
+| Streamlit | Interactive web application |
+| NumPy | Numerical operations |
+| Pytest | Automated testing |
+| Git and GitHub | Version control and source hosting |
+| Streamlit Community Cloud | Application deployment |
 
 ## Project Structure
 
 ```text
 AI-RoadGuard/
 ├── docs/
-├── outputs/                  # Generated results; ignored by Git
-├── samples/                  # Sample road images
+├── outputs/                  # Generated files; ignored by Git
+├── samples/
+├── screenshots/
+│   ├── image_detection_screenshots/
+│   └── video_analytics_screenshots/
 ├── src/
-│   ├── app.py                # Streamlit application
-│   ├── main.py               # Basic OpenCV image processing
-│   ├── detect_objects.py     # YOLO image detection
-│   ├── video_analyzer.py     # Tracking, video analytics, optical flow
-│   ├── analyze_hazards.py    # Rule-based review alerts
-│   ├── evaluate_results.py   # Evaluation report generation
-│   └── visualize_results.py  # Result visualization
+│   ├── app.py
+│   ├── main.py
+│   ├── detect_objects.py
+│   ├── video_analyzer.py
+│   ├── analyze_hazards.py
+│   ├── evaluate_results.py
+│   └── visualize_results.py
 ├── tests/
 │   ├── test_hazard_logic.py
 │   ├── test_opencv.py
@@ -92,193 +124,201 @@ AI-RoadGuard/
 └── README.md
 ```
 
-This tree should match the actual repository. Remove or adjust entries if your current files differ.
+## Getting Started
 
-## Requirements
+### Prerequisites
 
-- Python
-- Git
-- Internet access for installing dependencies and obtaining model weights
-- Sufficient disk space and memory for video processing
+- Python 3.10 or a compatible Python version supported by the installed dependencies.
+- Git.
+- An internet connection for installing packages and downloading YOLOv8n weights when they are not already available locally.
 
-Video analysis can require substantial storage and memory, especially for high-resolution videos.
-
-## Installation
-
-Clone the repository:
+### 1. Clone the Repository
 
 ```powershell
 git clone https://github.com/Plabon-Basak/AI-RoadGuard.git
 cd AI-RoadGuard
 ```
 
-Create and activate a virtual environment in Windows PowerShell:
+### 2. Create a Virtual Environment
 
 ```powershell
 python -m venv .venv
+```
+
+### 3. Activate the Virtual Environment
+
+For Windows PowerShell:
+
+```powershell
 .\.venv\Scripts\Activate.ps1
 ```
 
-Install dependencies:
+If PowerShell blocks activation, run this command in the current terminal session and try again:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+```
+
+### 4. Upgrade pip
 
 ```powershell
 python -m pip install --upgrade pip
+```
+
+### 5. Install Dependencies
+
+```powershell
 python -m pip install -r requirements.txt
 ```
 
-The application expects `yolov8n.pt` in the project root. Ensure the model weights are available before running the application. If they are missing, obtain them through the official Ultralytics model distribution.
+The application dependencies include:
 
-## Run the Application
+- `opencv-python-headless`
+- `ultralytics`
+- `streamlit`
+- `boto3`
+- `lap`
 
-Start Streamlit:
+The headless OpenCV package is suitable for a cloud deployment without desktop GUI dependencies.
+
+### 6. Run the Application
 
 ```powershell
 python -m streamlit run src/app.py
 ```
 
-Open the local URL displayed in the terminal, usually:
+Streamlit will display a local URL in the terminal. Open that URL in your browser.
 
-http://localhost:8501
+### Model Weights
 
-Choose **Image Detection** or **Video Traffic Analytics** and follow the instructions in the application.
+AI RoadGuard uses the YOLOv8n model. If `yolov8n.pt` exists in the project root, the application can load it from there. Otherwise, Ultralytics attempts to download the weights automatically, which requires internet access. The initial model download may take additional time.
 
-For video analysis, the application generates an annotated video and a JSON summary when processing completes successfully.
+## Using the Application
 
-## Run the Tests
+### Image Analysis
+1. Open the application.
+2. Select the image-analysis workflow.
+3. Upload a road-scene image.
+4. Run detection.
+5. Inspect the annotated image, detected classes, and confidence scores.
 
-Run the automated test suite:
+### Video Analysis
+1. Open the video-analysis workflow.
+2. Upload a road-scene video.
+3. Run the analysis.
+4. Review the annotated video and tracking results.
+5. Inspect line-crossing counts, road-user class counts, traffic-level estimates, optical-flow visualization, and preliminary alerts.
+6. Review or download generated results when the interface makes them available.
 
-```powershell
-python -m pytest -q
-```
+Processing time depends on video length, resolution, model execution speed, and available computing resources.
 
-The current test suite has **15 passing tests** in the latest local verification.
-
-The tests cover selected OpenCV functionality, optical flow, road-relevant class filtering, bounding-box intersection-over-union calculations, rule-based alert behavior, and evaluation-report logic.
-
-To check Python syntax:
-
-```powershell
-python -m py_compile .\src\video_analyzer.py .\src\app.py
-```
-
-To check for whitespace errors in pending Git changes:
-
-```powershell
-git diff --check
-```
-
-## Generated Outputs
-
-Analysis results are saved under `outputs/`. Depending on the operation, these may include:
-
-- Annotated images
-- Processed road videos
-- `video_detection_summary.json`
-- Hazard-review reports
-- Detection statistics and per-frame summaries
-- Evaluation reports
-
-The video analysis summary can include object-class counts, vehicle crossing counts, heuristic traffic estimates, optical-flow measurements, and documented limitations.
-
-Generated outputs and model weights are excluded from Git to avoid accidentally committing large files.
 ## Screenshots
+
+Screenshots are included in the repository to demonstrate the application's workflows and results.
 
 ### Image Detection
 
-The image detection interface allows users to upload an image and view object detection results with annotated bounding boxes.
+| Screenshot | Description |
+|---|---|
+| `screenshots/image_detection_screenshots/01_image_upload.png` | Image upload interface |
+| `screenshots/image_detection_screenshots/02_image_detection_results.png` | Detection results |
+| `screenshots/image_detection_screenshots/03_annotated_image.png` | Annotated image output |
 
-![Image Upload](screenshots/image_detection_screenshots/01_image_upload.png)
+### Video Analytics
 
-![Image Detection Results](screenshots/image_detection_screenshots/02_image_detection_results.png)
+| Screenshot | Description |
+|---|---|
+| `screenshots/video_analytics_screenshots/01_video_upload.png` | Video upload interface |
+| `screenshots/video_analytics_screenshots/02_video_detection.png` | Video detection output |
+| `screenshots/video_analytics_screenshots/03_vehicle_tracking.png` | Vehicle tracking visualization |
+| `screenshots/video_analytics_screenshots/04_line_crossing.png` | Virtual line-crossing analysis |
+| `screenshots/video_analytics_screenshots/05_road_class_counts.png` | Road-user class counts |
+| `screenshots/video_analytics_screenshots/06_traffic_analytics.png` | Traffic analytics and summary |
 
-![Annotated Image](screenshots/image_detection_screenshots/03_annotated_image.png)
+## Testing
 
-### Video Traffic Analytics
+The project includes automated tests for selected application logic and OpenCV functionality.
 
-The video analytics interface processes road footage to demonstrate object detection, vehicle tracking, virtual line crossing, road-relevant class counts, and traffic congestion estimation.
+Run the test suite from the project root:
 
-![Video Upload](screenshots/video_analytics_screenshots/01_video_upload.png)
+```powershell
+python -m pytest -v
+```
 
-![Video Detection](screenshots/video_analytics_screenshots/02_video_detection.png)
+The current project test suite has reported **15 passing tests** in the development environment.
 
-![Vehicle Tracking](screenshots/video_analytics_screenshots/03_vehicle_tracking.png)
+Passing tests demonstrate that the tested code paths behave as expected. They do not establish real-world detection accuracy, tracking reliability, or traffic-analysis validity.
 
-![Line Crossing](screenshots/video_analytics_screenshots/04_line_crossing.png)
+## Generated Outputs
 
-![Road-Relevant Class Counts](screenshots/video_analytics_screenshots/05_road_class_counts.png)
+Depending on the selected workflow, analysis may produce:
+- Annotated images.
+- Annotated videos.
+- Detection and tracking information.
+- JSON analysis summaries.
+- Road-user class counts.
+- Line-crossing counts.
+- Preliminary review alerts.
 
-![Traffic Analytics](screenshots/video_analytics_screenshots/06_traffic_analytics.png)
+Generated files are stored in the configured output directory, such as `outputs/`. These files are excluded from version control where configured in `.gitignore`.
 
 ## Methodology
 
-### Object Detection and Tracking
+AI RoadGuard uses a combination of computer vision and rule-based analysis:
 
-YOLOv8 detects objects in road scenes, while ByteTrack associates detections across video frames to maintain track IDs.
-
-Detection and tracking performance depends on scene conditions, occlusion, model confidence, and tracking stability.
-
-### Virtual-Line Crossing Analysis
-
-A configurable virtual line is placed in the video frame. Tracked vehicles crossing the line are counted according to the implemented crossing logic.
-
-Missed detections, occlusion, and changes in track IDs can affect crossing counts.
-
-### Optical Flow
-
-Farnebäck dense optical flow estimates apparent pixel displacement between consecutive grayscale frames. A reduced-resolution image is used to reduce computational cost.
-
-Motion vectors are visualized over the processed video, and motion magnitude statistics are recorded in the analysis summary.
-
-These measurements depend on image resolution, frame rate, and camera conditions. They are not calibrated physical velocity measurements.
-
-### Traffic-Level Estimation
-
-Traffic levels are estimated using the number of detected vehicles in each frame:
-
-- **Low:** 0–5 vehicles
-- **Moderate:** 6–12 vehicles
-- **High:** More than 12 vehicles
-
-These are prototype thresholds, not calibrated measurements of road occupancy, traffic density, or congestion.
-
-### Preliminary Hazard Review
-
-Rule-based checks flag selected conditions, such as high vehicle counts, unexpected classes, and overlapping detection boxes.
-
-These conditions indicate cases that may deserve inspection. They do not establish that a collision, hazard, or traffic violation has occurred.
-
-## Evaluation and Testing
-
-The project includes automated unit tests and an evaluation-reporting module.
-
-The latest local test run completed with 15 passing tests. This confirms that the tested code paths pass their current checks; it does not establish real-world detection accuracy or traffic-monitoring reliability.
-
-For meaningful performance evaluation, use representative road videos and ground-truth annotations to measure detection, tracking, and line-crossing performance. Report the test data, evaluation procedure, and limitations alongside any quantitative results.
+1. **Input processing:** Load the uploaded image or video.
+2. **Object detection:** Use YOLOv8 to identify supported objects.
+3. **Object tracking:** Apply ByteTrack to associate detections across video frames.
+4. **Line-crossing analysis:** Evaluate tracked-object movement relative to a virtual line.
+5. **Optical flow:** Estimate apparent pixel motion between consecutive frames using Farnebäck optical flow.
+6. **Traffic-level estimation:** Apply threshold-based rules to vehicle detection counts.
+7. **Preliminary review:** Apply simple rules to identify conditions that may require human inspection.
+8. **Output generation:** Present visual results and save configured analysis summaries.
 
 ## Limitations
 
-- Detection accuracy depends on image quality, lighting, camera angle, occlusion, and model performance.
-- Class counts across frames are not equivalent to unique object counts.
-- Vehicle and line-crossing counts may be inaccurate when objects are missed or track IDs change.
-- High vehicle counts alone do not establish congestion.
-- Optical flow can be affected by camera movement, shadows, lighting changes, and moving backgrounds.
-- Optical-flow magnitude is not a direct measurement of vehicle speed.
-- Overlapping bounding boxes do not necessarily indicate incorrect detections.
-- Rule-based alerts require human verification.
-- The application does not confirm collisions or predict accidents.
-- The prototype requires evaluation on representative road-scene data before operational use.
+AI RoadGuard is an experimental prototype and has several important limitations:
+
+- **Detection performance:** Results depend on the model, lighting, camera angle, image quality, occlusion, and environmental conditions.
+- **Tracking reliability:** Tracking IDs and line-crossing counts may be affected by missed detections, occlusion, and interrupted tracks.
+- **Traffic estimation:** Traffic levels use simple detection-count thresholds rather than calibrated density or congestion measurements.
+- **Frame-based counts:** Counts accumulated across frames should not be interpreted as unique vehicles unless a dedicated unique-object counting method is used.
+- **Optical flow:** Motion vectors represent apparent pixel movement and are not calibrated real-world speeds.
+- **Review alerts:** Rule-based alerts may produce false positives and false negatives and require human verification.
+- **Evaluation:** Automated tests do not replace evaluation on representative, independently labeled road-scene datasets.
+- **Deployment resources:** Processing large or high-resolution videos may be slow under limited cloud resources.
+
+The system should not be used as the sole basis for traffic enforcement, emergency response, or safety-critical decisions.
 
 ## Future Improvements
 
-- Evaluate detection and tracking on diverse road-scene datasets.
-- Add quantitative metrics for detection, tracking, and crossing counts.
-- Improve traffic estimation using calibrated camera views and longer observation windows.
-- Investigate camera-motion compensation for optical-flow analysis.
-- Add configurable alert thresholds and reproducible benchmark results.
-- Add representative sample inputs and documented evaluation results.
-- Explore cloud deployment when suitable infrastructure is available.
+Potential improvements include:
+- Evaluate detection performance using labeled road-scene datasets.
+- Measure precision, recall, and other appropriate evaluation metrics.
+- Improve unique-vehicle counting and tracking robustness.
+- Calibrate traffic-level estimates against real traffic measurements.
+- Explore road-specific hazard detection models.
+- Improve performance for long and high-resolution videos.
+- Add structured evaluation reports and more comprehensive logging.
+
+These are potential future improvements and should not be interpreted as completed features.
+
+## Competition Demo
+
+Try the deployed application:
+
+**[Launch AI RoadGuard](https://ai-roadguard-plabonbasak.streamlit.app/)**
+
+Explore the image and video workflows to see how computer vision can support preliminary road-scene analysis.
+
+## Author
+
+**Plabon Basak**
+
+- GitHub: [Plabon-Basak](https://github.com/Plabon-Basak)
+- Project Repository: [AI-RoadGuard](https://github.com/Plabon-Basak/AI-RoadGuard)
+- Live Demo: [AI RoadGuard on Streamlit Community Cloud](https://ai-roadguard-plabonbasak.streamlit.app/)
 
 ## License
 
-A license has not yet been specified. Add a `LICENSE` file before distributing the project under a particular open-source license.
+No license has been specified for this repository yet. Add a `LICENSE` file if you choose to distribute the project under an open-source license.
