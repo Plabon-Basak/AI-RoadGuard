@@ -260,8 +260,6 @@ def analyze_video(
     if not video_path.exists():
         raise FileNotFoundError(f"Video not found: {video_path}")
 
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(f"YOLO model not found: {MODEL_PATH}")
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -298,7 +296,12 @@ def analyze_video(
         capture.release()
         raise RuntimeError("Could not create the output video.")
 
-    model = YOLO(str(MODEL_PATH))
+    model_source = (
+    str(MODEL_PATH)
+    if MODEL_PATH.exists()
+    else "yolov8n.pt"
+    )
+    model = YOLO(model_source)
 
     class_counts = Counter()
     track_classes = {}

@@ -31,17 +31,24 @@ st.write(
     "using OpenCV and YOLO."
 )
 
-if not MODEL_PATH.exists():
-    st.error(f"Model not found: {MODEL_PATH}")
-    st.info(
-        "Make sure yolov8n.pt exists in the AI-RoadGuard project root."
-    )
-    st.stop()
-
 
 @st.cache_resource
 def load_model():
-    return YOLO(str(MODEL_PATH))
+    model_source = (
+        str(MODEL_PATH)
+        if MODEL_PATH.exists()
+        else "yolov8n.pt"
+    )
+    return YOLO(model_source)
+
+
+try:
+    model = load_model()
+except Exception as exc:
+    st.error("Could not load the YOLOv8 model.")
+    st.exception(exc)
+    st.stop()
+
 
 
 model = load_model()
