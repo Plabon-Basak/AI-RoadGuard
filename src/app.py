@@ -1,6 +1,8 @@
+
+import csv
 import json
-from collections import Counter
-from itertools import combinations
+import sys
+from io import StringIO
 from pathlib import Path
 
 import cv2
@@ -8,17 +10,13 @@ import numpy as np
 import streamlit as st
 from ultralytics import YOLO
 
-
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = ROOT / "yolov8n.pt"
 OUTPUT_DIR = ROOT / "outputs"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-DEFAULT_CONFIDENCE = 0.25
-IMAGE_SIZE = 960
-
-VEHICLE_CLASSES = {"car", "bus", "truck", "motorcycle"}
-HIGH_VEHICLE_COUNT_THRESHOLD = 25
-OVERLAP_THRESHOLD = 0.80
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from video_analyzer import analyze_video
 
 
 st.set_page_config(
@@ -28,397 +26,466 @@ st.set_page_config(
 )
 
 st.title("AI RoadGuard")
-st.subheader("Computer Vision for Road Scene Analysis")
-
 st.write(
-    "Upload a road image to detect objects and generate "
-    "preliminary review alerts using YOLO and OpenCV."
+    "AI-powered road object detection and traffic analytics "
+    "using OpenCV and YOLO."
 )
 
-st.warning(
-    "Prototype only. Alerts require human verification. "
-    "This system does not confirm accidents or predict collisions."
-)
+if not MODEL_PATH.exists():
+    st.error(f"Model not found: {MODEL_PATH}")
+    st.info(
+        "Make sure yolov8n.pt exists in the AI-RoadGuard project root."
+    )
+    st.stop()
 
 
 @st.cache_resource
 def load_model():
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(
-            f"YOLO model not found: {MODEL_PATH}"
-        )
-
     return YOLO(str(MODEL_PATH))
 
 
-def calculate_iou(box_a, box_b):
-    """Calculate intersection over union for two bounding boxes."""
-    x1 = max(box_a[0], box_b[0])
-    y1 = max(box_a[1], box_b[1])
-    x2 = min(box_a[2], box_b[2])
-    y2 = min(box_a[3], box_b[3])
+model = load_model()
 
-    intersection = (
-        max(0.0, x2 - x1)
-        * max(0.0, y2 - y1)
-    )
-
-    area_a = (
-        max(0.0, box_a[2] - box_a[0])
-        * max(0.0, box_a[3] - box_a[1])
-    )
-
-    area_b = (
-        max(0.0, box_b[2] - box_b[0])
-        * max(0.0, box_b[3] - box_b[1])
-    )
-
-    union = area_a + area_b - intersection
-
-    return intersection / union if union > 0 else 0.0
-
-
-def analyze_hazards(detections):
-    """Generate explainable, rule-based review alerts."""
-    alerts = []
-
-    class_counts = Counter(
-        detection["label"] for detection in detections
-    )
-
-    vehicle_count = sum(
-        class_counts[label]
-        for label in VEHICLE_CLASSES
-    )
-
-    if vehicle_count >= HIGH_VEHICLE_COUNT_THRESHOLD:
-        alerts.append({
-            "type": "high_detected_vehicle_count",
-            "severity": "review",
-            "message": (
-                f"{vehicle_count} vehicles were detected. "
-                "Review the scene for possible congestion."
-            ),
-            "evidence": {
-                "vehicle_count": vehicle_count,
-                "threshold": HIGH_VEHICLE_COUNT_THRESHOLD,
-            },
-        })
-
-    for detection in detections:
-        if detection["label"] == "clock":
-            alerts.append({
-                "type": "unexpected_object_class",
-                "severity": "review",
-                "message": (
-                    "A clock was detected in the road image. "
-                    "Check whether this is a false positive."
-                ),
-                "evidence": detection,
-            })
-
-    overlap_issue_count = 0
-
-    for first, second in combinations(detections, 2):
-        iou = calculate_iou(
-            first["bounding_box"],
-            second["bounding_box"],
-        )
-
-        if iou >= OVERLAP_THRESHOLD:
-            overlap_issue_count += 1
-
-            if first["label"] == second["label"]:
-                issue_type = "possible_duplicate_detection"
-            else:
-                issue_type = "overlapping_different_classes"
-
-            alerts.append({
-                "type": issue_type,
-                "severity": "review",
-                "message": (
-                    f"Inspect overlapping detections: "
-                    f"{first['label']} and {second['label']} "
-                    f"(IoU: {iou:.2f})."
-                ),
-                "evidence": {
-                    "labels": [
-                        first["label"],
-                        second["label"],
-                    ],
-                    "iou": round(iou, 4),
-                    "first_box": first["bounding_box"],
-                    "second_box": second["bounding_box"],
-                },
-            })
-
-    report = {
-        "analysis_type": "rule_based_detection_review",
-        "total_detections": len(detections),
-        "class_counts": dict(sorted(class_counts.items())),
-        "detected_vehicle_count": vehicle_count,
-        "overlap_issue_count": overlap_issue_count,
-        "total_alerts": len(alerts),
-        "alerts": alerts,
-        "limitations": [
-            "A high vehicle count does not prove congestion.",
-            "Overlapping boxes may be valid objects or model errors.",
-            "Alerts require human verification.",
-            "The system does not confirm collisions or predict accidents.",
-        ],
-    }
-
-    return report
-
-
-uploaded_file = st.file_uploader(
-    "Upload a road image",
-    type=["jpg", "jpeg", "png"],
+mode = st.sidebar.radio(
+    "Choose analysis mode",
+    ["Image Detection", "Video Traffic Analytics"],
 )
 
-confidence = st.slider(
-    "Detection confidence threshold",
+confidence = st.sidebar.slider(
+    "Detection Confidence",
     min_value=0.10,
     max_value=0.90,
-    value=DEFAULT_CONFIDENCE,
+    value=0.25,
     step=0.05,
-    help=(
-        "Higher values filter out more low-confidence detections. "
-        "This can also remove valid objects."
-    ),
 )
 
-if uploaded_file is not None:
-    file_bytes = np.frombuffer(
-        uploaded_file.getvalue(),
-        dtype=np.uint8,
+image_size = st.sidebar.select_slider(
+    "Inference Image Size",
+    options=[320, 480, 640, 800, 960],
+    value=640,
+)
+
+line_position = st.sidebar.slider(
+    "Virtual Crossing Line Position (%)",
+    min_value=10,
+    max_value=90,
+    value=65,
+    step=5,
+    help="Move the crossing line vertically within the video frame.",
+)
+
+
+def make_csv(data):
+    buffer = StringIO()
+    writer = csv.writer(buffer)
+
+    writer.writerow(["Metric", "Category", "Value"])
+
+    for metric, value in data.items():
+        if isinstance(value, dict):
+            for category, count in value.items():
+                writer.writerow([metric, category, count])
+        elif isinstance(value, (str, int, float, bool)):
+            writer.writerow([metric, "", value])
+
+    return buffer.getvalue()
+
+
+if mode == "Image Detection":
+    st.header("Road Object Detection")
+
+    uploaded_image = st.file_uploader(
+        "Upload a road image",
+        type=["jpg", "jpeg", "png", "webp"],
+        key="road_image",
     )
 
-    image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    if uploaded_image is not None:
+        image_bytes = np.frombuffer(
+            uploaded_image.getvalue(),
+            dtype=np.uint8,
+        )
+        image = cv2.imdecode(image_bytes, cv2.IMREAD_COLOR)
 
-    if image is None:
-        st.error("The uploaded file could not be decoded as an image.")
-        st.stop()
+        if image is None:
+            st.error("Could not read this image. Try another file.")
+            st.stop()
 
-    height, width = image.shape[:2]
+        with st.spinner("Detecting road objects..."):
+            results = model.predict(
+                source=image,
+                conf=confidence,
+                imgsz=image_size,
+                verbose=False,
+            )
 
-    st.caption(f"Image dimensions: {width} × {height}")
+        result = results[0]
+        annotated_image = result.plot()
+        annotated_rgb = cv2.cvtColor(
+            annotated_image,
+            cv2.COLOR_BGR2RGB,
+        )
 
-    original_column, result_column = st.columns(2)
+        class_counts = {}
+        detections = []
 
-    with original_column:
-        st.markdown("### Original image")
+        if result.boxes is not None:
+            for box in result.boxes:
+                class_id = int(box.cls[0].item())
+                score = float(box.conf[0].item())
+                label = model.names[class_id]
+
+                class_counts[label] = (
+                    class_counts.get(label, 0) + 1
+                )
+
+                x1, y1, x2, y2 = [
+                    int(value)
+                    for value in box.xyxy[0].tolist()
+                ]
+
+                detections.append({
+                    "class": label,
+                    "confidence": round(score, 4),
+                    "bounding_box": [x1, y1, x2, y2],
+                })
+
+        summary = {
+            "mode": "image",
+            "filename": uploaded_image.name,
+            "confidence_threshold": confidence,
+            "image_size": image_size,
+            "total_detections": len(detections),
+            "class_counts": class_counts,
+            "detections": detections,
+        }
+
         st.image(
-            cv2.cvtColor(image, cv2.COLOR_BGR2RGB),
+            annotated_rgb,
+            caption="Annotated Road Image",
             use_container_width=True,
         )
 
-    if st.button("Analyze road image", type="primary"):
-        try:
-            with st.spinner("Running YOLO object detection..."):
-                model = load_model()
+        col1, col2 = st.columns(2)
 
-                results = model.predict(
-                    source=image,
-                    conf=confidence,
-                    imgsz=IMAGE_SIZE,
-                    verbose=False,
-                )
+        with col1:
+            st.metric("Total Objects Detected", len(detections))
 
-                result = results[0]
-                annotated_image = result.plot()
+        with col2:
+            st.metric("Object Classes Found", len(class_counts))
 
-                detections = []
+        st.subheader("Objects by Type")
 
-                for box in result.boxes:
-                    class_id = int(box.cls[0].item())
-                    score = float(box.conf[0].item())
+        if class_counts:
+            st.bar_chart(class_counts)
+        else:
+            st.info("No objects detected at this confidence threshold.")
 
-                    detections.append({
-                        "label": model.names[class_id],
-                        "confidence": round(score, 4),
-                        "bounding_box": [
-                            round(float(value), 2)
-                            for value in box.xyxy[0].tolist()
-                        ],
-                    })
+        with st.expander("Detection Details"):
+            st.json(summary)
 
-                class_counts = Counter(
-                    detection["label"]
-                    for detection in detections
-                )
+        image_output = cv2.imencode(
+            ".jpg",
+            annotated_image,
+        )[1].tobytes()
 
-                hazard_report = analyze_hazards(detections)
+        st.download_button(
+            "Download Annotated Image",
+            data=image_output,
+            file_name="roadguard_detected.jpg",
+            mime="image/jpeg",
+        )
 
-                detection_summary = {
-                    "image": uploaded_file.name,
-                    "image_width": width,
-                    "image_height": height,
-                    "model": MODEL_PATH.name,
-                    "confidence_threshold": confidence,
-                    "image_size": IMAGE_SIZE,
-                    "total_detections": len(detections),
-                    "class_counts": dict(
-                        sorted(class_counts.items())
-                    ),
-                    "detections": detections,
-                }
+        st.download_button(
+            "Download Detection JSON",
+            data=json.dumps(summary, indent=2),
+            file_name="roadguard_detection_summary.json",
+            mime="application/json",
+        )
 
-                hazard_report["image"] = uploaded_file.name
-                hazard_report["confidence_threshold"] = confidence
+        st.download_button(
+            "Download Detection CSV",
+            data=make_csv({
+                "total_detections": len(detections),
+                "class_counts": class_counts,
+            }),
+            file_name="roadguard_image_report.csv",
+            mime="text/csv",
+        )
 
-                OUTPUT_DIR.mkdir(
-                    parents=True,
-                    exist_ok=True,
-                )
 
-                image_output_path = (
-                    OUTPUT_DIR / "roadguard_app_result.jpg"
-                )
+elif mode == "Video Traffic Analytics":
+    st.header("Video Traffic Analytics")
 
-                image_saved = cv2.imwrite(
-                    str(image_output_path),
-                    annotated_image,
-                )
+    st.write(
+        "Upload a road video to detect and track vehicles, "
+        "estimate congestion, count virtual-line crossings, "
+        "and export a traffic report."
+    )
 
-                if not image_saved:
-                    raise RuntimeError(
-                        "Could not save the annotated image."
+    uploaded_video = st.file_uploader(
+        "Upload a road video",
+        type=["mp4", "avi", "mov", "mkv"],
+        key="road_video",
+    )
+
+    if uploaded_video is not None:
+        st.video(uploaded_video.getvalue())
+
+        if st.button("Analyze Traffic Video", type="primary"):
+            suffix = Path(uploaded_video.name).suffix or ".mp4"
+            input_path = OUTPUT_DIR / f"uploaded_video{suffix}"
+
+            input_path.write_bytes(uploaded_video.getvalue())
+
+            try:
+                with st.spinner(
+                    "Analyzing video. This may take a few minutes..."
+                ):
+                    output_video, output_json, video_summary = analyze_video(
+                        str(input_path),
+                        confidence=confidence,
+                        image_size=image_size,
+                        line_position=line_position,
                     )
 
-                (OUTPUT_DIR / "app_detection_summary.json").write_text(
-                    json.dumps(detection_summary, indent=2),
-                    encoding="utf-8",
+                st.session_state["roadguard_video_summary"] = (
+                    video_summary
+                )
+                st.session_state["roadguard_output_video"] = str(
+                    output_video
+                )
+                st.session_state["roadguard_output_json"] = str(
+                    output_json
                 )
 
-                (OUTPUT_DIR / "app_hazard_report.json").write_text(
-                    json.dumps(hazard_report, indent=2),
-                    encoding="utf-8",
-                )
+            except Exception as exc:
+                st.error(f"Video analysis failed: {exc}")
 
-                st.session_state["roadguard_result"] = {
-                    "image": annotated_image,
-                    "summary": detection_summary,
-                    "report": hazard_report,
-                    "source_name": uploaded_file.name,
-                }
+    video_summary = st.session_state.get(
+        "roadguard_video_summary"
+    )
 
-        except Exception as exc:
-            st.error(f"Analysis failed: {exc}")
+    if video_summary:
+        st.success("Video analysis completed.")
 
+        output_video_path = Path(
+            st.session_state["roadguard_output_video"]
+        )
+        output_json_path = Path(
+            st.session_state["roadguard_output_json"]
+        )
 
-if "roadguard_result" in st.session_state:
-    result_data = st.session_state["roadguard_result"]
-    summary = result_data["summary"]
-    report = result_data["report"]
+        if output_video_path.exists():
+            st.subheader("Annotated Video")
+            st.video(str(output_video_path))
 
-    st.divider()
-    st.markdown("## Analysis results")
+            st.download_button(
+                "Download Annotated Video",
+                data=output_video_path.read_bytes(),
+                file_name="roadguard_video_result.mp4",
+                mime="video/mp4",
+            )
+        else:
+            st.warning("The annotated video file was not found.")
 
-    with result_column:
-        st.markdown("### Detected objects")
-        st.image(
-            cv2.cvtColor(
-                result_data["image"],
-                cv2.COLOR_BGR2RGB,
+        total_crossings = video_summary.get(
+            "total_vehicle_line_crossings", 0
+        )
+        unique_objects = video_summary.get(
+            "unique_tracked_objects",
+            video_summary.get("unique_tracked_vehicles", 0),
+        )
+        processed_frames = video_summary.get(
+            "processed_frames", 0
+        )
+        total_detections = video_summary.get(
+            "total_detections_across_frames",
+            video_summary.get(
+                "total_detections",
+                video_summary.get("total_vehicle_detections", 0),
             ),
-            use_container_width=True,
         )
 
-    metric1, metric2, metric3, metric4 = st.columns(4)
+        st.subheader("Traffic Analytics Dashboard")
 
-    metric1.metric(
-        "Objects detected",
-        summary["total_detections"],
-    )
+        col1, col2 = st.columns(2)
+        col3, col4 = st.columns(2)
 
-    metric2.metric(
-        "Vehicles detected",
-        report["detected_vehicle_count"],
-    )
+        with col1:
+            st.metric("Line Crossings", total_crossings)
 
-    metric3.metric(
-        "Overlap issues",
-        report["overlap_issue_count"],
-    )
+        with col2:
+            st.metric("Unique Tracked Objects", unique_objects)
 
-    metric4.metric(
-        "Review alerts",
-        report["total_alerts"],
-    )
+        with col3:
+            st.metric("Frames Processed", processed_frames)
 
-    st.markdown("### Object counts")
+        with col4:
+            st.metric("Total Frame Detections", total_detections)
 
-    if summary["class_counts"]:
-        st.dataframe(
-            [
-                {"Object": label, "Count": count}
-                for label, count in summary["class_counts"].items()
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
-    else:
-        st.info(
-            "No objects were detected at the selected confidence threshold."
+        congestion = video_summary.get(
+            "congestion_estimation", {}
         )
 
-    st.markdown("### Review alerts")
+        st.subheader("Traffic Congestion Estimation")
 
-    if report["alerts"]:
-        for index, alert in enumerate(
-            report["alerts"],
-            start=1,
-        ):
-            with st.expander(
-                f"{index}. {alert['type']}",
-                expanded=index == 1,
-            ):
-                st.warning(alert["message"])
-                st.caption(
-                    f"Severity: {alert['severity']}"
+        if congestion:
+            average_vehicles = congestion.get(
+                "average_vehicles_per_frame", 0
+            )
+            peak_vehicles = congestion.get(
+                "peak_vehicles_in_one_frame", 0
+            )
+            congestion_level = congestion.get(
+                "estimated_overall_level", "Unknown"
+            )
+            frames_by_level = congestion.get(
+                "frames_by_level", {}
+            )
+
+            metric1, metric2, metric3 = st.columns(3)
+
+            with metric1:
+                st.metric(
+                    "Estimated Congestion",
+                    congestion_level,
                 )
 
-                if "evidence" in alert:
-                    st.json(alert["evidence"])
-    else:
-        st.success(
-            "No alerts were generated by the current rules."
+            with metric2:
+                st.metric(
+                    "Average Vehicles per Frame",
+                    f"{average_vehicles:.2f}",
+                )
+
+            with metric3:
+                st.metric(
+                    "Peak Vehicles in One Frame",
+                    peak_vehicles,
+                )
+
+            st.caption(
+                "Congestion is estimated from vehicle detections per frame. "
+                "These heuristic levels are not calibrated traffic "
+                "measurements and may vary with camera angle and visibility."
+            )
+
+            st.subheader("Frames by Congestion Level")
+
+            chart_data = {
+                level: frames_by_level.get(level, 0)
+                for level in ["Low", "Moderate", "High"]
+            }
+
+            st.bar_chart(chart_data)
+
+            with st.expander("Congestion Method and Thresholds"):
+                st.write(
+                    congestion.get(
+                        "method",
+                        "Method not specified.",
+                    )
+                )
+                st.write(
+                    "Vehicle classes included:",
+                    ", ".join(
+                        congestion.get(
+                            "vehicle_classes_included", []
+                        )
+                    ),
+                )
+                st.write(
+                    "Low level threshold:",
+                    congestion.get(
+                        "low_threshold_max_vehicles", "Unknown"
+                    ),
+                )
+                st.write(
+                    "Moderate level threshold:",
+                    congestion.get(
+                        "moderate_threshold_max_vehicles", "Unknown"
+                    ),
+                )
+                st.write(congestion.get("interpretation", ""))
+
+        else:
+            st.info(
+                "No congestion estimates were found in this report. "
+                "Ensure src/video_analyzer.py includes congestion estimation."
+            )
+
+        directions = video_summary.get(
+            "crossings_by_direction", {}
+        )
+        vehicle_classes = video_summary.get(
+            "crossings_by_vehicle_class", {}
         )
 
-    st.caption(
-        "These rules identify items for review, not confirmed hazards. "
-        "A lack of alerts does not establish that a road is safe."
-    )
+        st.subheader("Crossings by Direction")
 
-    st.markdown("### Download reports")
+        if directions:
+            st.bar_chart(directions)
+        else:
+            st.info("No directional crossing data is available.")
 
-    download_column1, download_column2 = st.columns(2)
+        st.subheader("Crossings by Vehicle Type")
 
-    with download_column1:
+        if vehicle_classes:
+            st.bar_chart(vehicle_classes)
+        else:
+            st.info("No vehicle-class crossing data is available.")
+
+        st.subheader("Full Analysis Summary")
+
+        with st.expander("View Video Summary JSON"):
+            st.json(video_summary)
+
+        if output_json_path.exists():
+            st.download_button(
+                "Download Full JSON Report",
+                data=output_json_path.read_bytes(),
+                file_name="roadguard_video_summary.json",
+                mime="application/json",
+            )
+        else:
+            st.download_button(
+                "Download Full JSON Report",
+                data=json.dumps(video_summary, indent=2),
+                file_name="roadguard_video_summary.json",
+                mime="application/json",
+            )
+
+        report_data = {
+            "total_line_crossings": total_crossings,
+            "unique_tracked_objects": unique_objects,
+            "processed_frames": processed_frames,
+            "total_frame_detections": total_detections,
+            "crossings_by_direction": directions,
+            "crossings_by_vehicle_type": vehicle_classes,
+        }
+
+        if congestion:
+            report_data["congestion_estimation"] = {
+                "average_vehicles_per_frame": congestion.get(
+                    "average_vehicles_per_frame", 0
+                ),
+                "peak_vehicles_in_one_frame": congestion.get(
+                    "peak_vehicles_in_one_frame", 0
+                ),
+                "estimated_overall_level": congestion.get(
+                    "estimated_overall_level", "Unknown"
+                ),
+                "frames_by_level": congestion.get(
+                    "frames_by_level", {}
+                ),
+            }
+
         st.download_button(
-            "Download detection summary",
-            data=json.dumps(summary, indent=2),
-            file_name="detection_summary.json",
-            mime="application/json",
-            use_container_width=True,
+            "Download Traffic Analytics CSV",
+            data=make_csv(report_data),
+            file_name="roadguard_traffic_analytics.csv",
+            mime="text/csv",
         )
 
-    with download_column2:
-        st.download_button(
-            "Download hazard report",
-            data=json.dumps(report, indent=2),
-            file_name="hazard_report.json",
-            mime="application/json",
-            use_container_width=True,
-        )
-
-    st.download_button(
-        "Download annotated image",
-        data=cv2.imencode(
-            ".jpg",
-            result_data["image"],
-        )[1].tobytes(),
-        file_name="roadguard_result.jpg",
-        mime="image/jpeg",
-    )
+st.sidebar.divider()
+st.sidebar.caption("AI RoadGuard | OpenCV AI Competition 2026")
